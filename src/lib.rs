@@ -5,12 +5,9 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
 
-fn box_path(raw: syn::Path) -> syn::TypePath {
+fn box_path(generic: syn::Type) -> syn::TypePath {
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
-    generic_pair.push(syn::GenericArgument::Type(Type::Path(syn::TypePath {
-        qself: None,
-        path: raw
-    })));
+    generic_pair.push(syn::GenericArgument::Type(generic));
 
     let segment = syn::PathSegment {
         ident: Ident::new("Box", Span::call_site()),
@@ -78,9 +75,7 @@ pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
                 raw_inputs.push(name.ident.to_string());
             }
 
-            if let syn::Type::Path(type_path) = *path.ty.clone() {
-                path.ty = Box::new(syn::Type::Path(box_path(type_path.clone().path)));
-            }
+            path.ty = Box::new(syn::Type::Path(box_path(*path.ty)));
 
             new_inputs.push(syn::FnArg::Typed(path));
         }
@@ -90,9 +85,7 @@ pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     if wrapper_function.sig.output != ReturnType::Default {
         if let ReturnType::Type(arrow, output) = wrapper_function.sig.output.clone() {
-            if let Type::Path(path) = &*output {
-                wrapper_function.sig.output = ReturnType::Type(arrow, Box::new(Type::Path(box_path(path.clone().path))));
-            }
+            wrapper_function.sig.output = ReturnType::Type(arrow, Box::new(Type::Path(box_path(*output))));
         }
     }
 

@@ -39,3 +39,8 @@ fn structure_me(name: String) -> MyBody {
 fn optional() -> Option<String> {
     None
 }
+
+#[capture]
+fn refrence(example: &str) {
+    println!("{}", example);
+}

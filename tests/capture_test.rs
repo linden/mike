@@ -34,3 +34,8 @@ fn structure_me(name: String) -> MyBody {
         name: name
     }
 }
+
+#[capture]
+fn optional() -> Option<String> {
+    None
+}

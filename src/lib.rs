@@ -7,9 +7,11 @@ use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
 
 // TODO: could be simpler with `quote!`?
 fn box_path(raw: syn::Path) -> syn::TypePath {
+    let first_segement = raw.segments.first().unwrap();
+
     let wrapped_segment = syn::PathSegment {
-        ident: raw.segments.first().unwrap().ident.clone(),
-        arguments: syn::PathArguments::None
+        ident: first_segement.ident.clone(),
+        arguments: first_segement.arguments.clone()
     };
 
     let mut wrapped_pair = Punctuated::<syn::PathSegment, syn::token::Colon2>::new();
@@ -25,7 +27,7 @@ fn box_path(raw: syn::Path) -> syn::TypePath {
     })));
 
     let segment = syn::PathSegment {
-        ident: Ident::new("Box", raw.segments.first().unwrap().ident.clone().span()),
+        ident: Ident::new("Box", first_segement.ident.clone().span()),
         arguments: syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments{
             colon2_token: None,
             lt_token: Default::default(),

@@ -5,29 +5,15 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
 
-// TODO: could be simpler with `quote!`?
 fn box_path(raw: syn::Path) -> syn::TypePath {
-    let first_segement = raw.segments.first().unwrap();
-
-    let wrapped_segment = syn::PathSegment {
-        ident: first_segement.ident.clone(),
-        arguments: first_segement.arguments.clone()
-    };
-
-    let mut wrapped_pair = Punctuated::<syn::PathSegment, syn::token::Colon2>::new();
-    wrapped_pair.push(wrapped_segment);
-
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
     generic_pair.push(syn::GenericArgument::Type(Type::Path(syn::TypePath {
         qself: None,
-        path: syn::Path {
-            leading_colon: None,
-            segments: wrapped_pair
-        }
+        path: raw
     })));
 
     let segment = syn::PathSegment {
-        ident: Ident::new("Box", first_segement.ident.clone().span()),
+        ident: Ident::new("Box", Span::call_site()),
         arguments: syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments{
             colon2_token: None,
             lt_token: Default::default(),

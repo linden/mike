@@ -3,6 +3,9 @@
 use mike::{capture, expand, CrossCreation};
 
 #[derive(CrossCreation)]
+pub struct MySingleString(String);
+
+#[derive(CrossCreation)]
 pub struct MyBody {
     alive: bool,
     name: String

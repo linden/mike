@@ -1,6 +1,8 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 
+use std::char;
+
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
@@ -241,26 +243,57 @@ pub fn cross_creation(stream: TokenStream) -> TokenStream {
         }
     };
 
-    let mut names: Vec<Ident> = Vec::new();
-    let mut types: Vec<syn::Type> = Vec::new();
-
-    if let syn::Fields::Named(named_fields) = structure.fields {
-        for field in named_fields.named {
-            names.push(field.ident.clone().unwrap());
-            types.push(field.ty);
-        }
-    }
+    // println!("{:#?}", structure.clone());
 
     let structure_ident = structure.ident.clone();
     let function_name = format_ident!("mike_new_{}", structure.ident);
 
-    let function = quote!(
-        #[allow(non_snake_case)]
-        pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#structure_ident> {
-            return Box::new(#structure_ident {#(#names: *#names),*});
-        }
-    );
+    let function = match structure.fields {
+        syn::Fields::Named(named_fields) => {
+            let mut names: Vec<Ident> = Vec::new();
+            let mut types: Vec<Type> = Vec::new();
+
+            for field in named_fields.named {
+                names.push(field.ident.clone().unwrap());
+                types.push(field.ty);
+            }
+
+            quote!(
+                #[allow(non_snake_case)]
+                pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#structure_ident> {
+                    return Box::new(#structure_ident {#(#names: *#names),*});
+                }
+            )
+        },
+        syn::Fields::Unnamed(fields) => {
+            let mut names: Vec<Ident> = Vec::new();
+            let mut types: Vec<Type> = Vec::new();
+
+            let mut index: u32 = 0;
+
+            for field in fields.unnamed {
+                names.push(format_ident!("{}", char::from_digit(10 + index, 16).unwrap()));
+                types.push(field.ty);
+
+                index += 1;
+            }
+
+            quote!(
+                #[allow(non_snake_case)]
+                pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#structure_ident> {
+                    return Box::new(#structure_ident (#(*#names),*));
+                }
+            )
+        },
+        _ => { 
+            unimplemented!("TODO: add more struct type support") 
+        }   
+    };
 
     let item: Item = syn::parse(function.into()).unwrap();
-    item.into_token_stream().into()
+    let stream: TokenStream2 = item.into_token_stream();
+
+    println!("created wrapper function `{:?}`", stream.clone().to_string());
+
+    stream.into()
 }

@@ -31,27 +31,12 @@ fn box_path(generic: syn::Type) -> syn::TypePath {
     }
 }
 
-#[proc_macro_attribute]
-pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
-    let mut item: Item = syn::parse(stream.clone()).unwrap();
-
-    let function = match &mut item {
-        Item::Fn(function) => { 
-            function 
-        },
-        _ => { 
-            panic!("`#[capture]` only works with functions") 
-        }
-    };
-
-    let function_name = function.sig.ident.to_string();
-
-    let mut wrapper_name = function_name.clone();
-    wrapper_name.insert_str(0, "crossed_ffi_");
+fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<syn::FnArg>) -> syn::Item {
+    let wrapped_name = format!("crossed_ffi_{}", function.sig.ident.to_string().clone());
 
     let mut wrapper_function = function.clone();
-    wrapper_function.sig.ident = Ident::new(&wrapper_name, Span::call_site());
-    wrapper_function.block.stmts = vec![];
+    wrapper_function.sig.ident = Ident::new(&wrapped_name, Span::call_site());
+    wrapper_function.block.stmts = vec![]; 
 
     let public_token: syn::token::Pub = Default::default();
 
@@ -81,6 +66,11 @@ pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
         }
     }
 
+    if let Some(unwrapped_self) = wrapped_self {
+        wrapper_function.sig.unsafety = Some(Default::default());
+        new_inputs.insert(0, unwrapped_self);
+    }
+
     wrapper_function.sig.inputs = new_inputs;
 
     if wrapper_function.sig.output != ReturnType::Default {
@@ -104,23 +94,125 @@ pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
         prefixed_cursors.push(prefixed_cursor);
     }
 
-    let function_name_ident = format_ident!("{}", function_name);
+    let statement = {
+        if wrapper_function.sig.output == ReturnType::Default {
+            quote!(
+                #call(#(#prefixed_cursors),*);
+            )
+        } else {
+            quote!(
+                return Box::new(#call(#(#prefixed_cursors),*));
+            )
+        }
+    };
 
-    if wrapper_function.sig.output == ReturnType::Default {
-        wrapper_function.block.stmts.push(syn::parse(quote!(
-            #function_name_ident(#(#prefixed_cursors),*);
-        ).into()).unwrap());
-    } else {
-        wrapper_function.block.stmts.push(syn::parse(quote!(
-            return Box::new(#function_name_ident(#(#prefixed_cursors),*));
-        ).into()).unwrap());
-    }
+    wrapper_function.block.stmts.push(syn::parse(statement.into()).unwrap());
+
+    Item::Fn(wrapper_function)
+}
+
+#[proc_macro_attribute]
+pub fn capture(_: TokenStream, stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let function = match item.clone() {
+        Item::Fn(function) => { 
+            function 
+        },
+        _ => { 
+            panic!("`#[capture]` only works with functions") 
+        }
+    };
+
+    let call = function.sig.ident.clone();
+
+    let wrapped_item = capture_raw(function.clone(), quote!(#call), None);
 
     let mut new_stream: TokenStream2 = item.into_token_stream();
 
-    let ffi_item = Item::Fn(wrapper_function);
+    wrapped_item.to_tokens(&mut new_stream);
 
-    ffi_item.to_tokens(&mut new_stream);
+    println!("turned\n  `{}`\ninto\n  `{}`\n", stream.to_string(), new_stream.to_string());
+
+    new_stream.into()
+}
+
+#[proc_macro_attribute]
+pub fn expand(_: TokenStream, stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let implementation = match item.clone() {
+        Item::Impl(implementation) => { 
+            implementation 
+        },
+        _ => { 
+            panic!("`#[expand]` only works with implementation") 
+        }
+    };
+
+    let implementation_name = match &*implementation.self_ty {
+        syn::Type::Path(type_path) => {
+            type_path.path.segments.first().unwrap().ident.clone()
+        },
+        _ => { panic!("") }
+    };
+
+    let mut new_stream: TokenStream2 = item.clone().into_token_stream();
+
+    for item in implementation.items.clone().into_iter() {
+        if let syn::ImplItem::Method(mut method) = item {
+            let original_call = method.sig.ident.clone();
+
+            method.sig.ident = format_ident!("{}__{}", implementation_name.clone(), method.sig.ident);
+
+            let method_function = syn::ItemFn {
+                attrs: method.attrs,
+                vis: method.vis,
+                sig: method.sig.clone(),
+                block: Box::from(method.block)
+            };
+
+            let mut segments = Punctuated::<syn::PathSegment, syn::token::Colon2>::new();
+            segments.push(syn::PathSegment {
+                ident: implementation_name.clone(),
+                arguments: syn::PathArguments::None
+            });
+
+            let wrapped_self = syn::FnArg::Typed(syn::PatType{
+                attrs: Vec::new(),
+                pat: Box::new(syn::Pat::Ident(syn::PatIdent {
+                    attrs: Vec::new(),
+                    by_ref: None,
+                    mutability: None,
+                    ident: Ident::new("wrapped_self", Span::call_site()),
+                    subpat: None
+                })),
+                colon_token: Default::default(),
+                ty: Box::new(syn::Type::Ptr(syn::TypePtr {
+                    star_token: Default::default(),
+                    const_token: Some(Default::default()),
+                    mutability: None,
+                    elem: Box::new(syn::Type::Path(syn::TypePath {
+                        qself: None,
+                        path: syn::Path {
+                            leading_colon: None,
+                            segments: segments
+                        }
+                    }))
+                }))
+            });
+
+            let captured = {
+                if let Some(syn::FnArg::Receiver(_)) = method_function.sig.inputs.first() {
+                    capture_raw(method_function, quote!((*wrapped_self).#original_call), Some(wrapped_self))
+                } else {
+                    capture_raw(method_function, quote!(#implementation_name::#original_call), Some(wrapped_self))
+                }
+            };
+
+            captured.to_tokens(&mut new_stream);
+        }
+    }
 
     println!("turned\n  `{}`\ninto\n  `{}`\n", stream.to_string(), new_stream.to_string());
 

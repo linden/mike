@@ -1,10 +1,28 @@
 #![allow(dead_code)]
 
-use mike::capture;
+use mike::{capture, expand};
 
 pub struct MyBody {
     alive: bool,
     name: String
+}
+
+#[expand]
+impl MyBody {
+    fn new(name: String, alive: bool) -> MyBody {
+        MyBody {
+            name: name,
+            alive: alive
+        }
+    }
+
+    fn get_alive(&self) -> bool {
+        self.alive
+    }
+
+    fn what_name(&self) -> String {
+        self.name.clone()
+    }
 }
 
 #[capture]

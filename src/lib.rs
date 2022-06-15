@@ -227,3 +227,40 @@ pub fn dump(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     stream
 }
+
+#[proc_macro_derive(CrossCreation)]
+pub fn cross_creation(stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let structure = match item.clone() {
+        Item::Struct(structure) => { 
+            structure 
+        },
+        _ => { 
+            panic!("`#[derive(CrossCreation)]` only works with structures") 
+        }
+    };
+
+    let mut names: Vec<Ident> = Vec::new();
+    let mut types: Vec<syn::Type> = Vec::new();
+
+    if let syn::Fields::Named(named_fields) = structure.fields {
+        for field in named_fields.named {
+            names.push(field.ident.clone().unwrap());
+            types.push(field.ty);
+        }
+    }
+
+    let structure_ident = structure.ident.clone();
+    let function_name = format_ident!("mike_new_{}", structure.ident);
+
+    let function = quote!(
+        #[allow(non_snake_case)]
+        pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#structure_ident> {
+            return Box::new(#structure_ident {#(#names: *#names),*});
+        }
+    );
+
+    let item: Item = syn::parse(function.into()).unwrap();
+    item.into_token_stream().into()
+}

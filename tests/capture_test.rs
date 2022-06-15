@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use mike::{capture, expand};
+use mike::{capture, expand, CrossCreation};
 
+#[derive(CrossCreation)]
 pub struct MyBody {
     alive: bool,
     name: String

@@ -34,7 +34,7 @@ fn box_path(generic: syn::Type) -> syn::TypePath {
 }
 
 fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<syn::FnArg>) -> syn::Item {
-    let wrapped_name = format!("crossed_ffi_{}", function.sig.ident.to_string().clone());
+    let wrapped_name = format!("mike_fn_{}", function.sig.ident.to_string().clone());
 
     let mut wrapper_function = function.clone();
     wrapper_function.sig.ident = Ident::new(&wrapped_name, Span::call_site());

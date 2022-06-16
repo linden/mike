@@ -3,6 +3,13 @@
 use mike::{capture, expand, CrossCreation};
 
 #[derive(CrossCreation)]
+pub enum Coffee {
+    Americano,
+    NotAmericano(usize),
+    AlsoNotAmericano{ name: String }
+}
+
+#[derive(CrossCreation)]
 pub struct MySingleString(String);
 
 #[derive(CrossCreation)]

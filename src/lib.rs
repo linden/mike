@@ -230,21 +230,7 @@ pub fn dump(_: TokenStream, stream: TokenStream) -> TokenStream {
     stream
 }
 
-#[proc_macro_derive(CrossCreation)]
-pub fn cross_creation(stream: TokenStream) -> TokenStream {
-    let item: Item = syn::parse(stream.clone()).unwrap();
-
-    let structure = match item.clone() {
-        Item::Struct(structure) => { 
-            structure 
-        },
-        _ => { 
-            panic!("`#[derive(CrossCreation)]` only works with structures") 
-        }
-    };
-
-    // println!("{:#?}", structure.clone());
-
+fn cross_creation_structure(structure: syn::ItemStruct) -> TokenStream2 {
     let structure_ident = structure.ident.clone();
     let function_name = format_ident!("mike_new_{}", structure.ident);
 
@@ -291,9 +277,89 @@ pub fn cross_creation(stream: TokenStream) -> TokenStream {
     };
 
     let item: Item = syn::parse(function.into()).unwrap();
-    let stream: TokenStream2 = item.into_token_stream();
+    item.into_token_stream()
+}
 
-    println!("created wrapper function `{:?}`", stream.clone().to_string());
+fn cross_creation_enumerable(enumerable: syn::ItemEnum) -> TokenStream2 {
+    let enumerable_type = enumerable.ident.clone();
 
-    stream.into()
+    let mut new_stream = TokenStream2::new();
+
+    for variant in enumerable.variants.into_iter() {
+        let variant_name = variant.ident.clone();
+        let function_name = format_ident!("mike_get_{}__{}", enumerable_type, variant_name); 
+
+        //TODO (Linden): merge with struct version, very similar
+        let statement = match variant.fields {
+            syn::Fields::Unit => {
+                quote!(
+                    #[allow(non_snake_case)]
+                    pub extern "C" fn #function_name() -> Box<#enumerable_type> {
+                        Box::new(#enumerable_type::#variant_name)
+                    }
+                )
+            },
+            syn::Fields::Unnamed(fields) => {
+                let mut names: Vec<Ident> = Vec::new();
+                let mut types: Vec<Type> = Vec::new();
+
+                let mut index: u32 = 0;
+
+                for field in fields.unnamed {
+                    names.push(format_ident!("{}", char::from_digit(10 + index, 16).unwrap()));
+                    types.push(field.ty);
+
+                    index += 1;
+                }
+
+                quote!(
+                    #[allow(non_snake_case)]
+                    pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#enumerable_type> {
+                        Box::new(#enumerable_type::#variant_name(#(*#names),*))
+                    }
+                )
+            },
+            syn::Fields::Named(fields) => {
+                let mut names: Vec<Ident> = Vec::new();
+                let mut types: Vec<Type> = Vec::new();
+
+                for field in fields.named {
+                    names.push(field.ident.clone().unwrap());
+                    types.push(field.ty);
+                }
+
+                quote!(
+                    #[allow(non_snake_case)]
+                    pub extern "C" fn #function_name(#(#names: Box<#types>),*) -> Box<#enumerable_type> {
+                        return Box::new(#enumerable_type::#variant_name{#(#names: *#names),*});
+                    }
+                )
+            }
+        };
+
+        statement.to_tokens(&mut new_stream);
+    }
+
+    new_stream
+}
+
+#[proc_macro_derive(CrossCreation)]
+pub fn cross_creation(stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let new_stream: TokenStream2 = match item {
+        Item::Struct(structure) => { 
+            cross_creation_structure(structure)
+        },
+        Item::Enum(enumerable) => {
+            cross_creation_enumerable(enumerable)
+        },
+        _ => { 
+            panic!("`#[derive(CrossCreation)]` only works with structures") 
+        }
+    };
+
+    println!("created wrapper function `{:?}`", new_stream.clone().to_string());
+
+    new_stream.into()
 }

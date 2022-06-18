@@ -1,3 +1,4 @@
+#![feature(proc_macro_expand)]
 extern crate proc_macro;
 use proc_macro::TokenStream;
 
@@ -362,4 +363,43 @@ pub fn cross_creation(stream: TokenStream) -> TokenStream {
     println!("created wrapper function `{:?}`", new_stream.clone().to_string());
 
     new_stream.into()
+}
+
+macro_rules! expand {($($tt:tt)*) => (
+    stringify!($($tt)*).parse::<TokenStream>().expect("failed to expand")
+)}
+
+fn unquote(source: String) -> String {
+    source.trim_matches('"').to_string()
+}
+
+fn length_prefix(source: String) -> String {
+    format!("{}{}", source.len(), source)
+}
+
+#[proc_macro_attribute]
+pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let function = match item {
+        Item::Fn(function) => { 
+            function 
+        },
+        _ => {
+            panic!("#[export] only works with functions")
+        }
+    };
+
+    let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
+    let crate_name = env!("CARGO_CRATE_NAME");
+    let function_name = unquote(function.sig.ident.to_string());
+
+    println!("{}::{}::{}", crate_name, path, function_name);
+
+    let statement = quote!(
+        #function
+    );
+
+    let item: Item = syn::parse(function.into()).unwrap();
+    item.into_token_stream().into()
 }

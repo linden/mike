@@ -8,6 +8,8 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
 
+static VERSION: usize = 1;
+
 fn box_path(generic: syn::Type) -> syn::TypePath {
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
     generic_pair.push(syn::GenericArgument::Type(generic));
@@ -50,7 +52,7 @@ fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<s
     let extern_token: syn::token::Extern = Default::default();
 
     wrapper_function.sig.abi = Some(syn::Abi{
-        extern_token: extern_token,
+        extern_token,
         name: Some(syn::LitStr::new("C", Span::call_site()))
     });
 
@@ -382,7 +384,7 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     let item: Item = syn::parse(stream.clone()).unwrap();
 
     let function = match item {
-        Item::Fn(function) => { 
+        Item::Fn(function) =>{ 
             function 
         },
         _ => {
@@ -393,13 +395,92 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
     let crate_name = env!("CARGO_CRATE_NAME");
     let function_name = unquote(function.sig.ident.to_string());
+    function.sig.inputs.extend
 
     println!("{}::{}::{}", crate_name, path, function_name);
+
+    let delimiter = "_";
+
+    let mut mangled_name = String::new();
+    mangled_name.push_str("MIKE");
+    mangled_name.push_str(delimiter);
+
+    mangled_name.push_str(&VERSION.to_string());
+    mangled_name.push_str(delimiter);
+
+    // Will need to be changed when more types are allowed.
+    let base_type = BaseType::Function;
+    mangled_name.push_str(&base_type.to_number().to_string());
+    mangled_name.push_str(delimiter);
+
+    let path_component = ComponentType::Path;
+    mangled_name.push_str(&path_component.to_number().to_string());
+    mangled_name.push_str(delimiter);
+
+    let components_in_path: Vec<&str> = path.split("::").collect();
+    mangled_name.push_str(&components_in_path.len().to_string());
+    mangled_name.push_str(delimiter);
+
+    for component in components_in_path.iter() {
+        mangled_name.push_str(&component.len().to_string());
+        mangled_name.push_str(delimiter);
+        mangled_name.push_str(component);
+        mangled_name.push_str(delimiter);
+    }
+
+    let arguments_component = ComponentType::Arguments;
+    mangled_name.push_str(&arguments_component.to_number().to_string());
+    mangled_name.push_str(delimiter);
+
+    let arguments_len = function.sig.inputs.len();
+    mangled_name.push_str(&arguments_len.to_string());
+    mangled_name.push_str(delimiter);
+
+    for input in function.sig.inputs.iter() {
+
+    }
+
+
+    println!("{}", mangled_name);
 
     let statement = quote!(
         #function
     );
 
-    let item: Item = syn::parse(function.into()).unwrap();
+    let item: Item = syn::parse(statement.into()).unwrap();
     item.into_token_stream().into()
+
+}
+
+enum ComponentType {
+    Path,
+    Arguments,
+    Outputs,
+}
+
+impl ComponentType {
+    fn to_number(&self) -> usize {
+        match self {
+            Self::Path => 1,
+            Self::Arguments => 2,
+            Self::Outputs => 3,
+        }
+    }
+}
+
+enum BaseType {
+    Function,
+    Struct,
+    Enum,
+}
+
+impl BaseType {
+    fn to_number(&self) -> usize {
+        match self {
+            Self::Function => 1,
+            _ => {
+                panic!("#[export] only works with functions for the time being")
+            },
+        }
+    }
 }

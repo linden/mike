@@ -6,7 +6,7 @@ use std::char;
 
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
-use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
+use syn::{Ident, Expr, Lit, Item, Type, ReturnType, punctuated::Punctuated};
 
 static VERSION: usize = 1;
 
@@ -436,7 +436,6 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
         mangled_name.push_str(&component.len().to_string());
         mangled_name.push_str(delimiter);
         mangled_name.push_str(component);
-        mangled_name.push_str(delimiter);
     }
 
     let arguments_component = ComponentType::Arguments;
@@ -447,8 +446,21 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     mangled_name.push_str(&arguments_len.to_string());
     mangled_name.push_str(delimiter);
 
-    // for input in function.sig.inputs.iter() {
-    // }
+    for input in function.sig.inputs.iter() {
+        if let syn::FnArg::Typed(mut path) = input.clone() {
+            if let syn::Pat::Ident(name) = &*path.pat {
+                let argument_name = name.ident.to_string();
+                mangled_name.push_str(&argument_name);
+
+                println!("{:#?}", path);
+            }
+
+            let type_name = encode_type(&path.ty);
+            
+            println!("{}", type_name);
+
+        }
+    }
 
     println!("{}", mangled_name);
 
@@ -457,5 +469,44 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     );
 
     let item: Item = syn::parse(statement.into()).unwrap();
+
     item.into_token_stream().into()
+}
+
+fn encode_type(ty: &Type) -> String {
+    match ty {
+        Type::Array(array) => {
+            let array_type = get_type_as_string(&array.elem);
+
+            let mut array_string_representation = String::new();
+            array_string_representation.push_str("Array<");
+            array_string_representation.push_str(&array_type);
+            array_string_representation.push_str(", ");
+
+            // Getting the expression for the array's length
+            if let Expr::Lit(len_literal) = &array.len {
+                if let Lit::Int(len_literal_expr) = &len_literal.lit {
+                    let len_literal_string = len_literal_expr.token().to_string();
+                    array_string_representation.push_str(&len_literal_string);
+                }
+            }
+
+            array_string_representation.push_str(">");
+
+            array_string_representation
+        },
+        Type::BareFn(bare_fn) => {
+            let mut bare_fn_encoded = String::new();
+            bare_fn_encoded.push_str("6barefn");
+
+            for input in bare_fn.inputs.iter() {
+                // let type_name = get_type_as_string(&input.ty);
+
+
+            }
+
+            todo!()
+        }
+        _ => { panic!("Could not convert type to string. Function get_type_as_string failed") }
+    }
 }

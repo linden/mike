@@ -7,8 +7,9 @@
 
 pub mod example {
     #[mike::export]
-    fn demo() {
-        println!("Hello World");
+    fn demo(example: [u8; 32]) -> usize {
+        println!("{:?}", example);
+        10
     }
 }
 

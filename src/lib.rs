@@ -10,6 +10,18 @@ use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
 
 static VERSION: usize = 1;
 
+enum ComponentType {
+    Path,
+    Arguments,
+    // Outputs
+}
+
+enum BaseType {
+    Function,
+    // Struct,
+    // Enum
+}
+
 fn box_path(generic: syn::Type) -> syn::TypePath {
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
     generic_pair.push(syn::GenericArgument::Type(generic));
@@ -395,7 +407,6 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
     let crate_name = env!("CARGO_CRATE_NAME");
     let function_name = unquote(function.sig.ident.to_string());
-    function.sig.inputs.extend
 
     println!("{}::{}::{}", crate_name, path, function_name);
 
@@ -410,11 +421,11 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     // Will need to be changed when more types are allowed.
     let base_type = BaseType::Function;
-    mangled_name.push_str(&base_type.to_number().to_string());
+    mangled_name.push_str(&(base_type as usize).to_string());
     mangled_name.push_str(delimiter);
 
     let path_component = ComponentType::Path;
-    mangled_name.push_str(&path_component.to_number().to_string());
+    mangled_name.push_str(&(path_component as usize).to_string());
     mangled_name.push_str(delimiter);
 
     let components_in_path: Vec<&str> = path.split("::").collect();
@@ -429,17 +440,15 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     }
 
     let arguments_component = ComponentType::Arguments;
-    mangled_name.push_str(&arguments_component.to_number().to_string());
+    mangled_name.push_str(&(arguments_component as usize).to_string());
     mangled_name.push_str(delimiter);
 
     let arguments_len = function.sig.inputs.len();
     mangled_name.push_str(&arguments_len.to_string());
     mangled_name.push_str(delimiter);
 
-    for input in function.sig.inputs.iter() {
-
-    }
-
+    // for input in function.sig.inputs.iter() {
+    // }
 
     println!("{}", mangled_name);
 
@@ -449,38 +458,4 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     let item: Item = syn::parse(statement.into()).unwrap();
     item.into_token_stream().into()
-
-}
-
-enum ComponentType {
-    Path,
-    Arguments,
-    Outputs,
-}
-
-impl ComponentType {
-    fn to_number(&self) -> usize {
-        match self {
-            Self::Path => 1,
-            Self::Arguments => 2,
-            Self::Outputs => 3,
-        }
-    }
-}
-
-enum BaseType {
-    Function,
-    Struct,
-    Enum,
-}
-
-impl BaseType {
-    fn to_number(&self) -> usize {
-        match self {
-            Self::Function => 1,
-            _ => {
-                panic!("#[export] only works with functions for the time being")
-            },
-        }
-    }
 }

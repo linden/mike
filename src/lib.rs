@@ -4,7 +4,6 @@ use proc_macro::TokenStream;
 
 use std::char;
 
-#[macro_use]
 extern crate serde;
 use serde::Serialize;
 use serde::Deserialize;
@@ -416,42 +415,6 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     item.into_token_stream().into()
 }
 
-fn encode_type(ty: &Type) -> String {
-    match ty {
-        Type::Array(array) => {
-            let array_type = encode_type(&array.elem);
-
-            let mut array_string_representation = String::new();
-            array_string_representation.push_str("Array<");
-            array_string_representation.push_str(&array_type);
-            array_string_representation.push_str(", ");
-
-            // Getting the expression for the array's length
-            if let Expr::Lit(len_literal) = &array.len {
-                if let Lit::Int(len_literal_expr) = &len_literal.lit {
-                    let len_literal_string = len_literal_expr.token().to_string();
-                    array_string_representation.push_str(&len_literal_string);
-                }
-            }
-
-            array_string_representation.push_str(">");
-
-            array_string_representation
-        },
-        Type::BareFn(bare_fn) => {
-            let mut bare_fn_encoded = String::new();
-            bare_fn_encoded.push_str("6barefn");
-
-            for input in bare_fn.inputs.iter() {
-                // let type_name = get_type_as_string(&input.ty);
-            }
-
-            todo!()
-        }
-        _ => { panic!("Could not convert type to string. Function get_type_as_string failed") }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 struct MangledName {
     version: usize,
@@ -508,7 +471,7 @@ impl Into<MangledName> for &ItemFn {
         let mut arguments = Vec::new();
 
         for input in self.sig.inputs.iter() {
-            if let syn::FnArg::Typed(mut path) = input.clone() {
+            if let syn::FnArg::Typed(path) = input.clone() {
                 if let syn::Pat::Ident(name) = &*path.pat {
                     let argument_name = name.ident.to_string();
                     let argument_type: ArgumentType = (&*path.ty).into();

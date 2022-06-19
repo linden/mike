@@ -27,5 +27,5 @@ example (component)
 4 		(length prefix)
 demo 	(component)
 _ 		(body)
-*message packed arguments and return type*
+*arguments and return types serialized with messagepack and encoded in base62*
 ```

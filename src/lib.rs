@@ -7,10 +7,10 @@ use std::char;
 extern crate serde;
 use serde::Serialize;
 use serde::Deserialize;
-
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Expr, Lit, Item, ItemFn, Type, ReturnType, punctuated::Punctuated};
+use base32::Alphabet::RFC4648;
 
 #[derive(Serialize, Deserialize)]
 struct MangledName {
@@ -73,7 +73,7 @@ impl MangledName {
 
         let base_type_bytes = rmp_serde::to_vec(&self.base_type).unwrap();
 
-        let base_type_encoded = bs62::encode_data(&base_type_bytes);
+        let base_type_encoded = base32::encode(RFC4648 { padding: false }, &base_type_bytes);
 
         encoded_string.push_str(&base_type_encoded);
 
@@ -515,10 +515,6 @@ macro_rules! expand {($($tt:tt)*) => (
 
 fn unquote(source: String) -> String {
     source.trim_matches('"').to_string()
-}
-
-fn length_prefix(source: String) -> String {
-    format!("{}{}", source.len(), source)
 }
 
 #[proc_macro_attribute]

@@ -61,7 +61,6 @@ impl MangledName {
         encoded_string.push_str(delimiter);
 
         let mut components_in_path: Vec<&str> = self.path.split("::").collect();
-        components_in_path.insert(0, &env!("CARGO_CRATE_NAME"));
         components_in_path.push(&self.name);
 
         encoded_string.push_str(&components_in_path.len().to_string());

@@ -34,13 +34,16 @@ enum BaseType {
 enum ArgumentType {
     Array {
         length: usize,
-        ty: Box<ArgumentType>,
+        value_type: Box<ArgumentType>,
     },
     BareFn {
         inputs: Vec<ArgumentType>,
         return_type: Box<ArgumentType>,
     },
-    Path,
+    Path {
+        value: String,
+        //TODO: arguments
+    },
     Nothing,
 }
 
@@ -140,11 +143,20 @@ impl Into<ArgumentType> for &Type {
 
                 ArgumentType::Array {
                     length,
-                    ty: Box::new(array_type),
+                    value_type: Box::new(array_type),
                 }
             },
+            //TODO: get full path, not just scoped
             Type::Path(path) => {
-                ArgumentType::Path
+                let mut encoded_path = String::new();
+
+                for segment in path.path.segments.clone() {
+                    encoded_path.push_str(&segment.ident.to_string());
+                }
+
+                ArgumentType::Path {
+                    value: encoded_path
+                }
             }
             _ => {
                 panic!("Could not convert Type into Argument Type");

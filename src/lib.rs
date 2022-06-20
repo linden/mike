@@ -540,7 +540,7 @@ fn export_inner(function: syn::ItemFn) -> syn::ItemFn {
     println!("mangled: `{}`", mangled_name_encoded);
 
     let statement = quote!(
-        #[link_name=#mangled_name_encoded]
+        #[export_name=#mangled_name_encoded]
         #function
     );
 

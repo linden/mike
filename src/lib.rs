@@ -549,9 +549,10 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     let mangled_name_encoded = mangled_name.encode();
 
-    println!("{}", mangled_name_encoded);
+    println!("mangled: `{}`", mangled_name_encoded);
 
     let statement = quote!(
+        #[link_name=#mangled_name_encoded]
         #function
     );
 

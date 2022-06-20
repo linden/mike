@@ -434,7 +434,7 @@ fn cross_creation_structure(structure: syn::ItemStruct) -> TokenStream2 {
         }   
     };
 
-    let item: Item = Item::Fn(export_inner(syn::parse(function.into()).unwrap()));
+    let item: Item = Item::Fn(syn::parse(function.into()).unwrap());
     item.into_token_stream()
 }
 

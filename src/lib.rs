@@ -12,7 +12,147 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
 use syn::{Ident, Expr, Lit, Item, ItemFn, Type, ReturnType, punctuated::Punctuated};
 
+#[derive(Serialize, Deserialize)]
+struct MangledName {
+    version: usize,
+    path: String,
+    name: String,
+    base_type: BaseType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum BaseType {
+    Function {
+        arguments: Vec<(String, ArgumentType)>,
+        return_type: ArgumentType,
+    },
+    // Struct,
+    // Enum
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum ArgumentType {
+    Array {
+        len: String,
+        ty: Box<ArgumentType>,
+    },
+    BareFn {
+        inputs: Vec<ArgumentType>,
+        return_type: Box<ArgumentType>,
+    },
+    Path,
+    Nothing,
+}
+
 static VERSION: usize = 1;
+
+impl MangledName {
+    fn set_path(&mut self, path: String) {
+        self.path = path;
+    }
+
+    fn encode(&self) -> String {
+        let mut encoded_string = String::new();
+        let delimiter = "_";
+
+        encoded_string.push_str("MIKE"); // Prefix for our protocol
+        encoded_string.push_str(delimiter);
+
+        encoded_string.push_str(&self.version.to_string());
+        encoded_string.push_str(delimiter);
+
+        let components_in_path: Vec<&str> = self.path.split("::").collect();
+        encoded_string.push_str(&components_in_path.len().to_string());
+        encoded_string.push_str(delimiter);
+
+        for component in components_in_path.iter() {
+            encoded_string.push_str(&component.len().to_string());
+            encoded_string.push_str(delimiter);
+            encoded_string.push_str(component);
+        }
+
+        encoded_string.push_str(delimiter);
+
+        let base_type_bytes = rmp_serde::to_vec(&self.base_type).unwrap();
+
+        let base_type_encoded = bs62::encode_data(&base_type_bytes);
+        
+        encoded_string.push_str(&base_type_encoded);
+
+        encoded_string
+    }
+}
+
+impl Into<MangledName> for &ItemFn {
+    fn into(self) -> MangledName {
+        let function_name = unquote(self.sig.ident.to_string());
+
+        let mut arguments = Vec::new();
+
+        for input in self.sig.inputs.iter() {
+            if let syn::FnArg::Typed(path) = input.clone() {
+                if let syn::Pat::Ident(name) = &*path.pat {
+                    let argument_name = name.ident.to_string();
+                    let argument_type: ArgumentType = (&*path.ty).into();
+
+                    arguments.push((argument_name, argument_type));
+                }
+            }
+        }
+
+        let return_type = match &self.sig.output {
+            syn::ReturnType::Type(_, ty) => ty.as_ref().into(),
+            syn::ReturnType::Default => ArgumentType::Nothing,
+        };
+
+        let function = BaseType::Function {
+            arguments,
+            return_type,
+        };
+
+        MangledName {
+            version: VERSION,
+            path: String::new(),
+            name: function_name,
+            base_type: function,
+        }
+    }
+}
+
+impl Into<ArgumentType> for &Type {
+    fn into(self) -> ArgumentType {
+        match self {
+            Type::Array(array) => {
+                let array_type: ArgumentType = (&*array.elem).into();
+
+                let len;
+
+                // Getting the expression for the array's length
+                if let Expr::Lit(len_literal) = &array.len {
+                    if let Lit::Int(len_literal_expr) = &len_literal.lit {
+                        len = len_literal_expr.token().to_string();
+                    } else {
+                        panic!("Literal for array length was not an Int");
+                    }
+                } else {
+                    panic!("Expression was not a literal");
+                }
+
+
+                ArgumentType::Array {
+                    len,
+                    ty: Box::new(array_type),
+                }
+            },
+            Type::Path(path) => {
+                ArgumentType::Path
+            }
+            _ => {
+                panic!("Could not convert Type into Argument Type");
+            }
+        }
+    }
+}
 
 fn box_path(generic: syn::Type) -> syn::TypePath {
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
@@ -413,148 +553,4 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
     let item: Item = syn::parse(statement.into()).unwrap();
 
     item.into_token_stream().into()
-}
-
-#[derive(Serialize, Deserialize)]
-struct MangledName {
-    version: usize,
-    path: String,
-    name: String,
-    base_type: BaseType,
-}
-
-impl MangledName {
-    fn set_path(&mut self, path: String) {
-        self.path = path;
-    }
-
-    fn encode(&self) -> String {
-        let mut encoded_string = String::new();
-        let delimiter = "_";
-
-        encoded_string.push_str("MIKE"); // Prefix for our protocol
-        encoded_string.push_str(delimiter);
-
-        encoded_string.push_str(&self.version.to_string());
-        encoded_string.push_str(delimiter);
-
-        let components_in_path: Vec<&str> = self.path.split("::").collect();
-        encoded_string.push_str(&components_in_path.len().to_string());
-        encoded_string.push_str(delimiter);
-
-        for component in components_in_path.iter() {
-            encoded_string.push_str(&component.len().to_string());
-            encoded_string.push_str(delimiter);
-            encoded_string.push_str(component);
-        }
-
-        encoded_string.push_str(delimiter);
-
-        let base_type_bytes = rmp_serde::to_vec(&self.base_type).unwrap();
-
-        let base_type_encoded = bs62::encode_data(&base_type_bytes);
-
-        encoded_string.push_str(&base_type_encoded);
-
-        encoded_string
-    }
-
-    fn decode(&self) -> String {
-        todo!()
-    }
-}
-
-impl Into<MangledName> for &ItemFn {
-    fn into(self) -> MangledName {
-        let function_name = unquote(self.sig.ident.to_string());
-
-        let mut arguments = Vec::new();
-
-        for input in self.sig.inputs.iter() {
-            if let syn::FnArg::Typed(path) = input.clone() {
-                if let syn::Pat::Ident(name) = &*path.pat {
-                    let argument_name = name.ident.to_string();
-                    let argument_type: ArgumentType = (&*path.ty).into();
-
-                    arguments.push((argument_name, argument_type));
-                }
-            }
-        }
-
-        let return_type = match &self.sig.output {
-            syn::ReturnType::Type(_, ty) => ty.as_ref().into(),
-            syn::ReturnType::Default => ArgumentType::Nothing,
-        };
-
-        let function = BaseType::Function {
-            arguments,
-            return_type,
-        };
-
-        MangledName {
-            version: VERSION,
-            path: String::new(),
-            name: function_name,
-            base_type: function,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-enum BaseType {
-    Function {
-        arguments: Vec<(String, ArgumentType)>,
-        return_type: ArgumentType,
-    },
-    // Struct,
-    // Enum
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-enum ArgumentType {
-    Array {
-        len: String,
-        ty: Box<ArgumentType>,
-    },
-    BareFn {
-        inputs: Vec<ArgumentType>,
-        return_type: Box<ArgumentType>,
-    },
-    Path,
-    Nothing,
-}
-
-impl Into<ArgumentType> for &Type {
-    fn into(self) -> ArgumentType {
-        match self {
-            Type::Array(array) => {
-                let array_type: ArgumentType = (&*array.elem).into();
-
-                let len;
-
-                // Getting the expression for the array's length
-                if let Expr::Lit(len_literal) = &array.len {
-                    if let Lit::Int(len_literal_expr) = &len_literal.lit {
-                        len = len_literal_expr.token().to_string();
-                    } else {
-                        panic!("Literal for array length was not an Int");
-                    }
-                } else {
-                    panic!("Expression was not a literal");
-                }
-
-
-                ArgumentType::Array {
-                    len,
-                    ty: Box::new(array_type),
-                }
-            },
-            Type::Path(path) => {
-                ArgumentType::Path
-            }
-            _ => {
-                panic!("Could not convert Type into Argument Type");
-            }
-        }
-    }
 }

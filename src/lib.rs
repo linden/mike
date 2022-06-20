@@ -33,7 +33,7 @@ enum BaseType {
 #[derive(Debug, Serialize, Deserialize)]
 enum ArgumentType {
     Array {
-        len: String,
+        length: usize,
         ty: Box<ArgumentType>,
     },
     BareFn {
@@ -123,14 +123,15 @@ impl Into<ArgumentType> for &Type {
             Type::Array(array) => {
                 let array_type: ArgumentType = (&*array.elem).into();
 
-                let len;
+                let length: usize;
 
                 // Getting the expression for the array's length
                 if let Expr::Lit(len_literal) = &array.len {
                     if let Lit::Int(len_literal_expr) = &len_literal.lit {
-                        len = len_literal_expr.token().to_string();
+                        let token = len_literal_expr.token().to_string();
+                        length = token.parse().expect("array length is invalid");
                     } else {
-                        panic!("Literal for array length was not an Int");
+                        panic!("Literal for array length was not an integer");
                     }
                 } else {
                     panic!("Expression was not a literal");
@@ -138,7 +139,7 @@ impl Into<ArgumentType> for &Type {
 
 
                 ArgumentType::Array {
-                    len,
+                    length,
                     ty: Box::new(array_type),
                 }
             },

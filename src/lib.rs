@@ -57,13 +57,15 @@ impl MangledName {
         encoded_string.push_str(&self.version.to_string());
         encoded_string.push_str(delimiter);
 
-        let components_in_path: Vec<&str> = self.path.split("::").collect();
+        let mut components_in_path: Vec<&str> = self.path.split("::").collect();
+        components_in_path.insert(0, &env!("CARGO_CRATE_NAME"));
+        components_in_path.push(&self.name);
+
         encoded_string.push_str(&components_in_path.len().to_string());
         encoded_string.push_str(delimiter);
 
         for component in components_in_path.iter() {
             encoded_string.push_str(&component.len().to_string());
-            encoded_string.push_str(delimiter);
             encoded_string.push_str(component);
         }
 
@@ -531,8 +533,6 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
             panic!("#[export] only works with functions")
         }
     };
-
-    let crate_name = env!("CARGO_CRATE_NAME");
 
     let mut mangled_name: MangledName = (&function).into();
     let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());

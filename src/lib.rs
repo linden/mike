@@ -47,10 +47,6 @@ enum ArgumentType {
 static VERSION: usize = 1;
 
 impl MangledName {
-    fn set_path(&mut self, path: String) {
-        self.path = path;
-    }
-
     fn encode(&self) -> String {
         let mut encoded_string = String::new();
         let delimiter = "_";
@@ -76,7 +72,7 @@ impl MangledName {
         let base_type_bytes = rmp_serde::to_vec(&self.base_type).unwrap();
 
         let base_type_encoded = bs62::encode_data(&base_type_bytes);
-        
+
         encoded_string.push_str(&base_type_encoded);
 
         encoded_string
@@ -540,7 +536,7 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
 
     let mut mangled_name: MangledName = (&function).into();
     let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
-    mangled_name.set_path(path);
+    mangled_name.path = path;
 
     let mangled_name_encoded = mangled_name.encode();
 

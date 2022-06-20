@@ -268,7 +268,7 @@ fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<s
 
     wrapper_function.block.stmts.push(syn::parse(statement.into()).unwrap());
 
-    Item::Fn(wrapper_function)
+    Item::Fn(export_inner(wrapper_function))
 }
 
 #[proc_macro_attribute]
@@ -434,7 +434,7 @@ fn cross_creation_structure(structure: syn::ItemStruct) -> TokenStream2 {
         }   
     };
 
-    let item: Item = syn::parse(function.into()).unwrap();
+    let item: Item = Item::Fn(export_inner(syn::parse(function.into()).unwrap()));
     item.into_token_stream()
 }
 
@@ -530,19 +530,7 @@ fn unquote(source: String) -> String {
     source.trim_matches('"').to_string()
 }
 
-#[proc_macro_attribute]
-pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
-    let item: Item = syn::parse(stream.clone()).unwrap();
-
-    let function = match item {
-        Item::Fn(function) =>{ 
-            function 
-        },
-        _ => {
-            panic!("#[export] only works with functions")
-        }
-    };
-
+fn export_inner(function: syn::ItemFn) -> syn::ItemFn {
     let mut mangled_name: MangledName = (&function).into();
     let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
     mangled_name.path = path;
@@ -556,7 +544,22 @@ pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
         #function
     );
 
-    let item: Item = syn::parse(statement.into()).unwrap();
+    syn::parse(statement.into()).unwrap()
+}
 
+#[proc_macro_attribute]
+pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let function = match item {
+        Item::Fn(function) =>{ 
+            function 
+        },
+        _ => {
+            panic!("#[export] only works with functions")
+        }
+    };
+
+    let item: Item = Item::Fn(export_inner(function));
     item.into_token_stream().into()
 }

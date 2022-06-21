@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde::Deserialize;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
-use syn::{Ident, Expr, Lit, Item, ItemFn, Type, ReturnType, punctuated::Punctuated};
+use syn::{Ident, Expr, Lit, Item, ItemFn, Type, ReturnType, GenericArgument, PathArguments, punctuated::Punctuated};
 use base32::Alphabet::RFC4648;
 
 #[derive(Serialize, Deserialize)]
@@ -122,6 +122,32 @@ impl Into<MangledName> for &ItemFn {
     }
 }
 
+fn wrap_type_path(type_path: &syn::TypePath) -> String {
+    let mut path = String::new();
+
+    for segment in type_path.path.segments.clone() {
+        if let PathArguments::AngleBracketed(arguments) = segment.arguments {
+            for argument in arguments.args {
+                if let GenericArgument::Type(generic) = argument {
+                    if let Type::Path(sub_type_path) = generic {
+                        path.push_str(&wrap_type_path(&sub_type_path));
+                    }
+                }
+            }
+        }
+
+        path.insert_str(0, &format!("{}<", segment.ident.to_string()));
+    }
+
+    path = path.trim_matches('<').to_string();
+
+    for _ in 1..=(path.matches("<").count() - path.matches(">").count()) {
+        path.push_str(">");
+    }
+
+    return path;
+}
+
 impl Into<ArgumentType> for &Type {
     fn into(self) -> ArgumentType {
         match self {
@@ -149,15 +175,9 @@ impl Into<ArgumentType> for &Type {
                 }
             },
             //TODO: get full path, not just scoped
-            Type::Path(path) => {
-                let mut encoded_path = String::new();
-
-                for segment in path.path.segments.clone() {
-                    encoded_path.push_str(&segment.ident.to_string());
-                }
-
+            Type::Path(full_path) => {
                 ArgumentType::Path {
-                    value: encoded_path
+                    value: wrap_type_path(full_path)
                 }
             },
             Type::Ptr(pointer) => {

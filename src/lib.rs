@@ -158,7 +158,7 @@ impl Into<ArgumentType> for &Type {
                 }
             }
             _ => {
-                panic!("Could not convert Type into Argument Type");
+                panic!("Could not convert Type ({:#?}) into Argument Type", self);
             }
         }
     }

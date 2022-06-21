@@ -44,6 +44,9 @@ enum ArgumentType {
         value: String,
         //TODO: arguments
     },
+    Pointer {
+        value: Box<ArgumentType>,
+    },
     Nothing,
 }
 
@@ -155,6 +158,13 @@ impl Into<ArgumentType> for &Type {
 
                 ArgumentType::Path {
                     value: encoded_path
+                }
+            },
+            Type::Ptr(pointer) => {
+                let pointer_type: ArgumentType = (&*pointer.elem).into();
+
+                ArgumentType::Pointer {
+                    value: Box::new(pointer_type)
                 }
             }
             _ => {

@@ -367,6 +367,8 @@ pub fn expand(_: TokenStream, stream: TokenStream) -> TokenStream {
                 arguments: syn::PathArguments::None
             });
 
+            let mutable: syn::token::Mut = Default::default();
+
             let wrapped_self = syn::FnArg::Typed(syn::PatType{
                 attrs: Vec::new(),
                 pat: Box::new(syn::Pat::Ident(syn::PatIdent {
@@ -380,7 +382,7 @@ pub fn expand(_: TokenStream, stream: TokenStream) -> TokenStream {
                 ty: Box::new(syn::Type::Ptr(syn::TypePtr {
                     star_token: Default::default(),
                     const_token: Some(Default::default()),
-                    mutability: None,
+                    mutability: Some(mutable),
                     elem: Box::new(syn::Type::Path(syn::TypePath {
                         qself: None,
                         path: syn::Path {

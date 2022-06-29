@@ -1,11 +1,198 @@
+#![feature(proc_macro_expand)]
 extern crate proc_macro;
 use proc_macro::TokenStream;
 
 use std::char;
 
+extern crate serde;
+use serde::Serialize;
+use serde::Deserialize;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{ToTokens, quote, format_ident};
-use syn::{Ident, Item, Type, ReturnType, punctuated::Punctuated};
+use syn::{Ident, Expr, Lit, Item, ItemFn, Type, ReturnType, GenericArgument, PathArguments, punctuated::Punctuated};
+use base32::Alphabet::RFC4648;
+
+#[derive(Serialize, Deserialize)]
+struct MangledName {
+    version: usize,
+    path: String,
+    name: String,
+    base_type: BaseType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum BaseType {
+    Function {
+        arguments: Vec<(String, ArgumentType)>,
+        return_type: ArgumentType,
+    },
+    // Struct,
+    // Enum
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum ArgumentType {
+    Array {
+        length: usize,
+        value_type: Box<ArgumentType>,
+    },
+    BareFn {
+        inputs: Vec<ArgumentType>,
+        return_type: Box<ArgumentType>,
+    },
+    Path {
+        value: String,
+        //TODO: arguments
+    },
+    Pointer {
+        value: Box<ArgumentType>,
+    },
+    Nothing,
+}
+
+static VERSION: usize = 1;
+
+impl MangledName {
+    fn encode(&self) -> String {
+        let mut encoded_string = String::new();
+        let delimiter = "_";
+
+        encoded_string.push_str("MIKE"); // Prefix for our protocol
+        encoded_string.push_str(delimiter);
+
+        encoded_string.push_str(&self.version.to_string());
+        encoded_string.push_str(delimiter);
+
+        let mut components_in_path: Vec<&str> = self.path.split("::").collect();
+        components_in_path.push(&self.name);
+
+        encoded_string.push_str(&components_in_path.len().to_string());
+        encoded_string.push_str(delimiter);
+
+        for component in components_in_path.iter() {
+            encoded_string.push_str(&component.len().to_string());
+            encoded_string.push_str(component);
+        }
+
+        encoded_string.push_str(delimiter);
+
+        let base_type_bytes = rmp_serde::to_vec(&self.base_type).unwrap();
+
+        let base_type_encoded = base32::encode(RFC4648 { padding: false }, &base_type_bytes);
+
+        encoded_string.push_str(&base_type_encoded);
+
+        encoded_string
+    }
+}
+
+impl Into<MangledName> for &ItemFn {
+    fn into(self) -> MangledName {
+        let function_name = unquote(self.sig.ident.to_string());
+
+        let mut arguments = Vec::new();
+
+        for input in self.sig.inputs.iter() {
+            if let syn::FnArg::Typed(path) = input.clone() {
+                if let syn::Pat::Ident(name) = &*path.pat {
+                    let argument_name = name.ident.to_string();
+                    let argument_type: ArgumentType = (&*path.ty).into();
+
+                    arguments.push((argument_name, argument_type));
+                }
+            }
+        }
+
+        let return_type = match &self.sig.output {
+            syn::ReturnType::Type(_, ty) => ty.as_ref().into(),
+            syn::ReturnType::Default => ArgumentType::Nothing,
+        };
+
+        let function = BaseType::Function {
+            arguments,
+            return_type,
+        };
+
+        MangledName {
+            version: VERSION,
+            path: String::new(),
+            name: function_name,
+            base_type: function,
+        }
+    }
+}
+
+fn wrap_type_path(type_path: &syn::TypePath) -> String {
+    let mut path = String::new();
+
+    for segment in type_path.path.segments.clone() {
+        if let PathArguments::AngleBracketed(arguments) = segment.arguments {
+            for argument in arguments.args {
+                if let GenericArgument::Type(generic) = argument {
+                    if let Type::Path(sub_type_path) = generic {
+                        path.push_str(&wrap_type_path(&sub_type_path));
+                    }
+                }
+            }
+        }
+
+        path.insert_str(0, &format!("{}<", segment.ident.to_string()));
+    }
+
+    path = path.trim_matches('<').to_string();
+
+    for _ in 1..=(path.matches("<").count() - path.matches(">").count()) {
+        path.push_str(">");
+    }
+
+    return path;
+}
+
+impl Into<ArgumentType> for &Type {
+    fn into(self) -> ArgumentType {
+        match self {
+            Type::Array(array) => {
+                let array_type: ArgumentType = (&*array.elem).into();
+
+                let length: usize;
+
+                // Getting the expression for the array's length
+                if let Expr::Lit(len_literal) = &array.len {
+                    if let Lit::Int(len_literal_expr) = &len_literal.lit {
+                        let token = len_literal_expr.token().to_string();
+                        length = token.parse().expect("array length is invalid");
+                    } else {
+                        panic!("Literal for array length was not an integer");
+                    }
+                } else {
+                    panic!("Expression was not a literal");
+                }
+
+
+                ArgumentType::Array {
+                    length,
+                    value_type: Box::new(array_type),
+                }
+            },
+            //TODO: get full path, not just scoped
+            Type::Path(full_path) => {
+                ArgumentType::Path {
+                    value: wrap_type_path(full_path)
+                }
+            },
+            Type::Ptr(pointer) => {
+                let pointer_type: ArgumentType = (&*pointer.elem).into();
+
+                ArgumentType::Pointer {
+                    value: Box::new(pointer_type)
+                }
+            }
+            _ => {
+                panic!("Could not convert Type ({:#?}) into Argument Type", self);
+            }
+        }
+    }
+}
 
 fn box_path(generic: syn::Type) -> syn::TypePath {
     let mut generic_pair = Punctuated::<syn::GenericArgument, syn::token::Comma>::new();
@@ -49,7 +236,7 @@ fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<s
     let extern_token: syn::token::Extern = Default::default();
 
     wrapper_function.sig.abi = Some(syn::Abi{
-        extern_token: extern_token,
+        extern_token,
         name: Some(syn::LitStr::new("C", Span::call_site()))
     });
 
@@ -110,7 +297,7 @@ fn capture_raw(function: syn::ItemFn, call: TokenStream2, wrapped_self: Option<s
 
     wrapper_function.block.stmts.push(syn::parse(statement.into()).unwrap());
 
-    Item::Fn(wrapper_function)
+    Item::Fn(export_inner(wrapper_function))
 }
 
 #[proc_macro_attribute]
@@ -180,6 +367,8 @@ pub fn expand(_: TokenStream, stream: TokenStream) -> TokenStream {
                 arguments: syn::PathArguments::None
             });
 
+            let mutable: syn::token::Mut = Default::default();
+
             let wrapped_self = syn::FnArg::Typed(syn::PatType{
                 attrs: Vec::new(),
                 pat: Box::new(syn::Pat::Ident(syn::PatIdent {
@@ -193,7 +382,7 @@ pub fn expand(_: TokenStream, stream: TokenStream) -> TokenStream {
                 ty: Box::new(syn::Type::Ptr(syn::TypePtr {
                     star_token: Default::default(),
                     const_token: Some(Default::default()),
-                    mutability: None,
+                    mutability: Some(mutable),
                     elem: Box::new(syn::Type::Path(syn::TypePath {
                         qself: None,
                         path: syn::Path {
@@ -276,7 +465,7 @@ fn cross_creation_structure(structure: syn::ItemStruct) -> TokenStream2 {
         }   
     };
 
-    let item: Item = syn::parse(function.into()).unwrap();
+    let item: Item = Item::Fn(syn::parse(function.into()).unwrap());
     item.into_token_stream()
 }
 
@@ -362,4 +551,46 @@ pub fn cross_creation(stream: TokenStream) -> TokenStream {
     println!("created wrapper function `{:?}`", new_stream.clone().to_string());
 
     new_stream.into()
+}
+
+macro_rules! expand {($($tt:tt)*) => (
+    stringify!($($tt)*).parse::<TokenStream>().expect("failed to expand")
+)}
+
+fn unquote(source: String) -> String {
+    source.trim_matches('"').to_string()
+}
+
+fn export_inner(function: syn::ItemFn) -> syn::ItemFn {
+    let mut mangled_name: MangledName = (&function).into();
+    let path = unquote(expand!(module_path!()).expand_expr().unwrap().to_string());
+    mangled_name.path = path;
+
+    let mangled_name_encoded = mangled_name.encode();
+
+    println!("mangled: `{}`", mangled_name_encoded);
+
+    let statement = quote!(
+        #[export_name=#mangled_name_encoded]
+        #function
+    );
+
+    syn::parse(statement.into()).unwrap()
+}
+
+#[proc_macro_attribute]
+pub fn export(_: TokenStream, stream: TokenStream) -> TokenStream {
+    let item: Item = syn::parse(stream.clone()).unwrap();
+
+    let function = match item {
+        Item::Fn(function) =>{ 
+            function 
+        },
+        _ => {
+            panic!("#[export] only works with functions")
+        }
+    };
+
+    let item: Item = Item::Fn(export_inner(function));
+    item.into_token_stream().into()
 }
